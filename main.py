@@ -1,32 +1,39 @@
-from flask import Flask, request
-import requests
+from flask import Flask
+from threading import Thread
 import os
+import requests
+import time
+from translate import translate_text  # 你的翻译函数，保留你已有的逻辑
 
 app = Flask(__name__)
-TOKEN = os.environ.get("TELEGRAM_TOKEN")
-URL = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
 
-def translate(text):
-    import googletrans
-    from googletrans import Translator
-    translator = Translator()
-    detected = translator.detect(text).lang
-    dest = 'zh-cn' if detected == 'en' else 'en'
-    return translator.translate(text, dest=dest).text
-
-@app.route("/", methods=["POST"])
-def webhook():
-    data = request.get_json()
-    if "message" in data and "text" in data["message"]:
-        chat_id = data["message"]["chat"]["id"]
-        text = data["message"]["text"]
-        translated = translate(text)
-        requests.post(URL, json={"chat_id": chat_id, "text": translated})
-    return {"ok": True}
-
-@app.route("/", methods=["GET"])
+@app.route('/')
 def home():
-    return "Xiaomeng Translate Bot is running."
+    return 'Bot is running!'
 
-if __name__ == "__main__":
-    app.run()
+def run():
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+
+def telegram_bot():
+    TOKEN = os.environ['TELEGRAM_TOKEN']
+    URL = f'https://api.telegram.org/bot{TOKEN}/getUpdates'
+
+    offset = None
+    while True:
+        try:
+            res = requests.get(URL, params={'offset': offset, 'timeout': 30}).json()
+            for update in res['result']:
+                offset = update['update_id'] + 1
+                chat_id = update['message']['chat']['id']
+                text = update['message']['text']
+                # 翻译逻辑
+                translated = translate_text(text)
+                requests.post(f'https://api.telegram.org/bot{TOKEN}/sendMessage',
+                              json={'chat_id': chat_id, 'text': translated})
+        except Exception as e:
+            print('Error:', e)
+        time.sleep(1)
+
+if __name__ == '__main__':
+    Thread(target=run).start()
+    telegram_bot()
