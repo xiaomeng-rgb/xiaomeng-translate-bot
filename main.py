@@ -1,39 +1,39 @@
-from flask import Flask
-from threading import Thread
 import os
+import json
 import requests
-import time
-from translate import translate_text  # 你的翻译函数，保留你已有的逻辑
+from flask import Flask, request
 
 app = Flask(__name__)
 
-@app.route('/')
-def home():
-    return 'Bot is running!'
+# 获取你的 Telegram Bot Token（从环境变量中）
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
 
-def run():
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+# 自动语言识别并翻译
+def translate(text):
+    from googletrans import Translator
+    translator = Translator()
+    src_lang = 'zh-cn' if any('\u4e00' <= ch <= '\u9fff' for ch in text) else 'en'
+    dest_lang = 'en' if src_lang == 'zh-cn' else 'zh-cn'
+    translated = translator.translate(text, src=src_lang, dest=dest_lang)
+    return translated.text
 
-def telegram_bot():
-    TOKEN = os.environ['TELEGRAM_TOKEN']
-    URL = f'https://api.telegram.org/bot{TOKEN}/getUpdates'
+@app.route("/", methods=["POST"])
+def webhook():
+    data = request.get_json()
+    if "message" in data and "text" in data["message"]:
+        chat_id = data["message"]["chat"]["id"]
+        text = data["message"]["text"]
+        translated_text = translate(text)
+        requests.post(TELEGRAM_API, json={
+            "chat_id": chat_id,
+            "text": translated_text
+        })
+    return "OK"
 
-    offset = None
-    while True:
-        try:
-            res = requests.get(URL, params={'offset': offset, 'timeout': 30}).json()
-            for update in res['result']:
-                offset = update['update_id'] + 1
-                chat_id = update['message']['chat']['id']
-                text = update['message']['text']
-                # 翻译逻辑
-                translated = translate_text(text)
-                requests.post(f'https://api.telegram.org/bot{TOKEN}/sendMessage',
-                              json={'chat_id': chat_id, 'text': translated})
-        except Exception as e:
-            print('Error:', e)
-        time.sleep(1)
+@app.route("/", methods=["GET"])
+def index():
+    return "Bot is running."
 
-if __name__ == '__main__':
-    Thread(target=run).start()
-    telegram_bot()
+if __name__ == "__main__":
+    app.run(debug=True)
